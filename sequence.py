@@ -10,7 +10,7 @@ class RequestStatus(Enum):
     WAITING = auto()
     RUNNING = auto()
     FINISHED = auto()
-
+    
 @dataclass
 class SamplingParams:
     temperature: float = 0.8
@@ -24,5 +24,9 @@ class Sequence:
     prompt_token_ids: list 
     output_token_ids: list = field(default_factory=list)
     status: RequestStatus = RequestStatus.WAITING
+    block_table: list = field(default_factory=list)
+
+    def get_len(self):
+        return len(self.prompt_token_ids) + len(self.output_token_ids)
     
    
