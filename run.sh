@@ -4,13 +4,19 @@ set -euo pipefail
 
 cd "$(dirname "$0")"
 
-echo "=== mini-vllm ==="
+echo "=== mini-vllm (Llama-2-7B) ==="
 
 if ! command -v nvidia-smi &>/dev/null; then
   echo "ERROR: nvidia-smi not found. Rent a CUDA template on Vast.ai."
   exit 1
 fi
 nvidia-smi --query-gpu=name,memory.total --format=csv,noheader
+
+VRAM_MB=$(nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits | head -1)
+if [[ "$VRAM_MB" -lt 20000 ]]; then
+  echo "WARNING: Llama-2-7B needs ~20+ GB VRAM. You have ${VRAM_MB} MB."
+  echo "         Use a 24 GB GPU (RTX 3090 / 4090) or reduce num_blocks in config.py."
+fi
 
 if ! command -v uv &>/dev/null; then
   echo "Installing uv..."
@@ -24,7 +30,7 @@ if [[ -n "${HF_TOKEN:-}" ]]; then
 elif [[ ! -f "$HOME/.cache/huggingface/token" ]]; then
   echo "WARNING: No HF_TOKEN set. Export it before running:"
   echo "  export HF_TOKEN=hf_..."
-  echo "Also accept the Llama license: https://huggingface.co/meta-llama/Llama-3.2-1B"
+  echo "Also accept the Llama 2 license: https://huggingface.co/meta-llama/Llama-2-7b-hf"
 fi
 
 echo "Installing dependencies..."
@@ -34,7 +40,7 @@ echo "Checking CUDA..."
 uv run python -c "import torch; print('PyTorch CUDA:', torch.cuda.is_available())"
 
 echo ""
-echo "=== Demo ==="
+echo "=== Demo (meta-llama/Llama-2-7b-hf) ==="
 uv run python - <<'PY'
 from minivllm import LLM, SamplingParams
 

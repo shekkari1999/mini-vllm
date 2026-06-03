@@ -2,7 +2,7 @@
 
 A from-scratch, single-GPU LLM inference engine inspired by [vLLM](https://github.com/vllm-project/vllm) and [nano-vllm](https://github.com/GeeeekExplorer/nano-vllm). It implements the core ideas behind high-throughput serving — **paged KV cache**, **continuous batching**, and a **step-based engine loop** — in ~500 lines of readable Python.
 
-Default model: [`meta-llama/Llama-3.2-1B`](https://huggingface.co/meta-llama/Llama-3.2-1B)
+Default model: [`meta-llama/Llama-2-7b-hf`](https://huggingface.co/meta-llama/Llama-2-7b-hf) · requires a **24 GB** GPU
 
 ---
 
@@ -111,9 +111,9 @@ run.sh                   # Vast.ai one-shot setup + run
 ### Prerequisites
 
 - Python 3.11+
-- CUDA GPU
+- **CUDA GPU with 24 GB VRAM** (RTX 3090, RTX 4090, A5000, etc.)
 - [uv](https://docs.astral.sh/uv/) package manager
-- Hugging Face account with [Llama 3.2 license accepted](https://huggingface.co/meta-llama/Llama-3.2-1B)
+- Hugging Face account with [Llama 2 license accepted](https://huggingface.co/meta-llama/Llama-2-7b-hf)
 
 ### Local
 
@@ -130,7 +130,7 @@ print(llm.generate('The capital of France is', SamplingParams(max_tokens=32)))
 
 ### Vast.ai
 
-Rent a CUDA instance, clone this repo, then:
+Rent a **24 GB** CUDA instance (e.g. RTX 3090), clone this repo, then:
 
 ```bash
 export HF_TOKEN=hf_your_token_here
@@ -147,13 +147,13 @@ chmod +x run.sh
 ```python
 from minivllm import LLM, Config, SamplingParams
 
-# Default: meta-llama/Llama-3.2-1B, 256 blocks × 16 tokens, batch 8
+# Default: meta-llama/Llama-2-7b-hf, 128 blocks × 16 tokens, batch 4
 llm = LLM()
 
 # Custom config
 llm = LLM(config=Config(
-    model="meta-llama/Llama-3.2-1B-Instruct",
-    num_blocks=512,
+    model="meta-llama/Llama-2-7b-chat-hf",
+    num_blocks=128,
     block_size=16,
     max_batch_size=4,
 ))
@@ -169,10 +169,10 @@ results = llm.generate(
 
 | Parameter | Default | Meaning |
 |-----------|---------|---------|
-| `model` | `meta-llama/Llama-3.2-1B` | HuggingFace model id |
-| `num_blocks` | 256 | KV blocks in the GPU pool |
+| `model` | `meta-llama/Llama-2-7b-hf` | HuggingFace model id |
+| `num_blocks` | 128 | KV blocks in the GPU pool |
 | `block_size` | 16 | Tokens stored per block |
-| `max_batch_size` | 8 | Max concurrent sequences |
+| `max_batch_size` | 4 | Max concurrent sequences |
 
 ---
 
