@@ -1,0 +1,121 @@
+{
+  "metadata": {
+    "timestamp_utc": "2026-06-09T09:17:03.706723+00:00",
+    "model": "Qwen/Qwen2.5-7B-Instruct",
+    "pytorch": "2.12.0+cu130",
+    "cuda": "13.0",
+    "gpu": "NVIDIA H100 80GB HBM3",
+    "benchmark_config": {
+      "num_blocks": 512,
+      "max_batch_size": 8,
+      "max_tokens": 128,
+      "batch_size": 8,
+      "ttft_num_requests": 16
+    }
+  },
+  "memory": {
+    "gpu_token_budget": 32768,
+    "max_seq_len": 512,
+    "block_size": 16,
+    "num_requests": 300,
+    "naive": {
+      "strategy": "naive_max_seq_len",
+      "served": 64,
+      "allocated_tokens": 32768,
+      "used_tokens": 8053,
+      "wasted_tokens": 24715,
+      "fragmentation": 0.754241943359375
+    },
+    "paged": {
+      "strategy": "paged_block_16",
+      "served": 226,
+      "allocated_tokens": 32768,
+      "used_tokens": 31057,
+      "wasted_tokens": 1711,
+      "fragmentation": 0.052215576171875
+    },
+    "serve_ratio": 3.53125,
+    "fragmentation_reduction_pct": 93.07707869714748
+  },
+  "batching": {
+    "model": "Qwen/Qwen2.5-7B-Instruct",
+    "gpu": "NVIDIA H100 80GB HBM3",
+    "config": {
+      "num_blocks": 512,
+      "block_size": 16,
+      "max_batch_size": 8
+    },
+    "sequential": {
+      "mode": "sequential",
+      "num_prompts": 8,
+      "max_tokens": 128,
+      "output_tokens": 1024,
+      "elapsed_s": 19.118469506967813,
+      "throughput_tps": 53.56077271911324
+    },
+    "continuous": {
+      "mode": "continuous",
+      "num_prompts": 8,
+      "max_tokens": 128,
+      "output_tokens": 1024,
+      "elapsed_s": 7.323130934033543,
+      "throughput_tps": 139.8309014578804
+    },
+    "speedup_x": 2.610696118803035
+  },
+  "ttft": {
+    "model": "Qwen/Qwen2.5-7B-Instruct",
+    "gpu": "NVIDIA H100 80GB HBM3",
+    "num_requests": 16,
+    "max_tokens": 128,
+    "static_ttfts_s": [
+      0.03180693998001516,
+      2.4541043101344258,
+      4.879879127023742,
+      7.307341224979609,
+      9.688927487004548,
+      12.057566890027374,
+      14.393671832978725,
+      16.749932073056698,
+      19.078173890942708,
+      21.43936251406558,
+      23.7708425601013,
+      26.12612840696238,
+      28.46675168001093,
+      30.812320505967364,
+      33.16188255115412,
+      35.529586610151455
+    ],
+    "continuous_ttfts_s": [
+      0.22169257095083594,
+      0.2216952359303832,
+      0.2216954599134624,
+      0.22169578890316188,
+      0.2216959788929671,
+      0.2216962689999491,
+      0.22169640683569014,
+      0.22169669391587377,
+      0.22169687482528389,
+      0.22169704199768603,
+      0.22169730300083756,
+      0.2216975309420377,
+      0.22169771790504456,
+      0.22169789485633373,
+      0.22169818286783993,
+      0.22169846296310425
+    ],
+    "static": {
+      "mean": 17.87176741278381,
+      "p50": 19.078173890942708,
+      "p90": 33.16188255115412,
+      "max": 35.529586610151455
+    },
+    "continuous": {
+      "mean": 0.2216965883562807,
+      "p50": 0.22169687482528389,
+      "p90": 0.22169818286783993,
+      "max": 0.22169846296310425
+    },
+    "max_ttft_improvement_x": 160.26086124045162
+  }
+}
