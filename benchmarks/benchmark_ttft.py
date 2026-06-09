@@ -7,7 +7,7 @@ import time
 
 import torch
 
-from minivllm import Config
+from minivllm.config import BENCHMARK_MAX_TOKENS, BENCHMARK_TTFT_REQUESTS, Config
 from minivllm.engine.llm_engine import LLMEngine
 from minivllm.sampling_params import SamplingParams
 
@@ -20,6 +20,14 @@ DEFAULT_PROMPTS = [
     "What is attention in transformer models?",
     "How does paged memory work in operating systems?",
     "Describe backpropagation in three sentences.",
+    "What is KV cache in large language models?",
+    "Explain autoregressive text generation.",
+    "How does RoPE positional encoding work?",
+    "What causes OOM errors during LLM inference?",
+    "Describe the prefill and decode phases.",
+    "Why is batching important for GPU utilization?",
+    "What is the difference between throughput and latency?",
+    "How do block tables map to physical KV memory?",
 ]
 
 
@@ -66,16 +74,20 @@ def _measure_burst(
 def run(
     model: str | None = None,
     *,
-    num_blocks: int = 256,
-    block_size: int = 16,
-    max_tokens: int = 48,
-    num_requests: int = 8,
+    num_blocks: int | None = None,
+    block_size: int | None = None,
+    max_tokens: int | None = None,
+    num_requests: int | None = None,
 ) -> dict:
     if not torch.cuda.is_available():
         raise SystemExit("CUDA required for TTFT benchmark.")
 
     cfg = Config()
     model = model or cfg.model
+    num_blocks = num_blocks if num_blocks is not None else cfg.num_blocks
+    block_size = block_size if block_size is not None else cfg.block_size
+    max_tokens = max_tokens if max_tokens is not None else BENCHMARK_MAX_TOKENS
+    num_requests = num_requests if num_requests is not None else BENCHMARK_TTFT_REQUESTS
     prompts = DEFAULT_PROMPTS[:num_requests]
 
     print("─" * 60)
@@ -114,9 +126,16 @@ def run(
 if __name__ == "__main__":
     import argparse
 
+    cfg = Config()
     p = argparse.ArgumentParser()
-    p.add_argument("--model", default=Config().model)
-    p.add_argument("--num-requests", type=int, default=8)
-    p.add_argument("--max-tokens", type=int, default=48)
+    p.add_argument("--model", default=cfg.model)
+    p.add_argument("--num-blocks", type=int, default=cfg.num_blocks)
+    p.add_argument("--num-requests", type=int, default=BENCHMARK_TTFT_REQUESTS)
+    p.add_argument("--max-tokens", type=int, default=BENCHMARK_MAX_TOKENS)
     args = p.parse_args()
-    run(args.model, num_requests=args.num_requests, max_tokens=args.max_tokens)
+    run(
+        args.model,
+        num_blocks=args.num_blocks,
+        num_requests=args.num_requests,
+        max_tokens=args.max_tokens,
+    )

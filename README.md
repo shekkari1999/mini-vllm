@@ -2,7 +2,7 @@
 
 Single-GPU LLM inference with paged KV cache, an FCFS scheduler, and continuous batching.
 
-Default model: [`Qwen/Qwen2.5-3B-Instruct`](https://huggingface.co/Qwen/Qwen2.5-3B-Instruct)
+Default model: [`Qwen/Qwen2.5-7B-Instruct`](https://huggingface.co/Qwen/Qwen2.5-7B-Instruct)
 
 Triton kernels (fused attention, etc.): [triton-kernels](https://github.com/shekkari1999/triton-kernels)
 
@@ -44,40 +44,43 @@ print(llm.generate('The capital of France is', SamplingParams(max_tokens=32)))
 ```python
 from minivllm import LLM, Config, SamplingParams
 
-llm = LLM(config=Config(
-    model="Qwen/Qwen2.5-3B-Instruct",
-    num_blocks=128,
-    block_size=16,
-    max_batch_size=4,
-))
+llm = LLM()  # defaults below
 
-out = llm.generate(["Hello", "The sky is"], SamplingParams(max_tokens=64))
+out = llm.generate(["Hello", "The sky is"], SamplingParams(max_tokens=128))
 ```
 
 | Config | Default | Meaning |
 |--------|---------|---------|
-| `model` | Qwen2.5-3B-Instruct | HuggingFace model id |
-| `num_blocks` | 128 | KV blocks in the GPU pool |
+| `model` | Qwen2.5-7B-Instruct | HuggingFace model id |
+| `num_blocks` | 512 | KV blocks in the GPU pool |
 | `block_size` | 16 | Tokens per block |
-| `max_batch_size` | 4 | Max concurrent sequences |
+| `max_batch_size` | 8 | Max concurrent sequences |
 
 ## Benchmarks
 
 Three tracks, each with a naive baseline:
 
-| Track | Baseline | This repo | Metric |
-|-------|----------|-----------|--------|
-| Memory | `max_seq_len` reserved per request | Paged block allocator | Concurrent seqs under a fixed KV budget (CPU) |
-| Batching | One request decoded at a time | Continuous batching | tok/s (GPU) |
-| TTFT | Burst load, `max_batch_size=1` | All requests batched | p50 / p90 / max time to first token (GPU) |
+| Track | Baseline | This repo | Default run |
+|-------|----------|-----------|-------------|
+| Memory | `max_seq_len` reserved per request | Paged block allocator | CPU, 300 mixed-length requests |
+| Batching | Sequential decode | Continuous batching | 8 prompts × 128 output tokens |
+| TTFT | Burst load, `max_batch_size=1` | All requests batched | 16 requests × 128 max tokens |
 
 ```bash
-uv run python benchmarks/run_all.py
+uv run python benchmarks/run_all.py --warmup
 uv run python benchmarks/plot_results.py
-uv run python benchmarks/benchmark_memory.py   # CPU only
 ```
 
 Output: `benchmarks/results/latest.json`, `benchmarks/results/figures/`
+
+Override defaults:
+
+```bash
+uv run python benchmarks/run_all.py --warmup \
+  --max-tokens 256 \
+  --batch-size 8 \
+  --num-requests 16
+```
 
 ## Results
 
@@ -86,8 +89,8 @@ Run `benchmarks/run_all.py` on a CUDA GPU and fill this in.
 | Benchmark | Metric | Value | GPU | Date |
 |-----------|--------|-------|-----|------|
 | Memory | paged / naive serve ratio | | | |
-| Batching | speedup vs sequential | | | |
-| TTFT | max TTFT improvement | | | |
+| Batching | speedup vs sequential (8 × 128 tok) | | | |
+| TTFT | max TTFT improvement (16 req burst) | | | |
 
 ## Not implemented yet
 

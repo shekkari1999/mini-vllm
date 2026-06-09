@@ -4,7 +4,7 @@ set -euo pipefail
 
 cd "$(dirname "$0")"
 
-echo "=== mini-vllm (Qwen2.5-3B-Instruct) ==="
+echo "=== mini-vllm (Qwen2.5-7B-Instruct) ==="
 
 if ! command -v nvidia-smi &>/dev/null; then
   echo "ERROR: nvidia-smi not found. Rent a CUDA instance."
@@ -40,7 +40,7 @@ for rid, text in sorted(llm.generate(
 PY
 
 echo ""
-echo "=== Benchmarks ==="
+echo "=== Benchmarks (8 × 128 tokens, 16-request TTFT) ==="
 uv run python benchmarks/run_all.py --warmup
 uv run python benchmarks/plot_results.py
 

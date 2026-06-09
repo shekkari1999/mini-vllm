@@ -6,7 +6,7 @@ import time
 
 import torch
 
-from minivllm import Config
+from minivllm.config import BENCHMARK_BATCH_SIZE, BENCHMARK_MAX_TOKENS, Config
 from minivllm.engine.llm_engine import LLMEngine
 from minivllm.sampling_params import SamplingParams
 
@@ -15,6 +15,10 @@ DEFAULT_PROMPTS = [
     "In machine learning, a tensor is",
     "Paged attention improves GPU memory usage by",
     "The speed of light in a vacuum is",
+    "A neural network learns by adjusting",
+    "The transformer architecture uses",
+    "GPU memory bandwidth limits",
+    "Continuous batching in inference servers",
 ]
 
 
@@ -91,11 +95,11 @@ def compare(
 def run(
     model: str | None = None,
     *,
-    num_blocks: int = 128,
-    block_size: int = 16,
-    max_batch_size: int = 4,
-    max_tokens: int = 64,
-    batch_size: int = 4,
+    num_blocks: int | None = None,
+    block_size: int | None = None,
+    max_batch_size: int | None = None,
+    max_tokens: int | None = None,
+    batch_size: int | None = None,
     warmup: bool = False,
 ) -> dict:
     if not torch.cuda.is_available():
@@ -103,6 +107,11 @@ def run(
 
     cfg = Config()
     model = model or cfg.model
+    num_blocks = num_blocks if num_blocks is not None else cfg.num_blocks
+    block_size = block_size if block_size is not None else cfg.block_size
+    max_batch_size = max_batch_size if max_batch_size is not None else cfg.max_batch_size
+    max_tokens = max_tokens if max_tokens is not None else BENCHMARK_MAX_TOKENS
+    batch_size = batch_size if batch_size is not None else BENCHMARK_BATCH_SIZE
     prompts = DEFAULT_PROMPTS[:batch_size]
 
     print("─" * 60)
@@ -140,10 +149,20 @@ def run(
 if __name__ == "__main__":
     import argparse
 
+    cfg = Config()
     p = argparse.ArgumentParser()
-    p.add_argument("--model", default=Config().model)
-    p.add_argument("--max-tokens", type=int, default=64)
-    p.add_argument("--batch-size", type=int, default=4)
+    p.add_argument("--model", default=cfg.model)
+    p.add_argument("--num-blocks", type=int, default=cfg.num_blocks)
+    p.add_argument("--max-batch-size", type=int, default=cfg.max_batch_size)
+    p.add_argument("--max-tokens", type=int, default=BENCHMARK_MAX_TOKENS)
+    p.add_argument("--batch-size", type=int, default=BENCHMARK_BATCH_SIZE)
     p.add_argument("--warmup", action="store_true")
     args = p.parse_args()
-    run(args.model, max_tokens=args.max_tokens, batch_size=args.batch_size, warmup=args.warmup)
+    run(
+        args.model,
+        num_blocks=args.num_blocks,
+        max_batch_size=args.max_batch_size,
+        max_tokens=args.max_tokens,
+        batch_size=args.batch_size,
+        warmup=args.warmup,
+    )
