@@ -1,6 +1,18 @@
 import torch
 import torch.nn as nn
-from transformers.models.llama.modeling_llama import apply_rotary_pos_emb
+
+
+def _apply_rotary_pos_emb(q, k, cos, sin):
+    for path in (
+        "transformers.models.qwen2.modeling_qwen2",
+        "transformers.models.llama.modeling_llama",
+    ):
+        try:
+            mod = __import__(path, fromlist=["apply_rotary_pos_emb"])
+            return mod.apply_rotary_pos_emb(q, k, cos, sin)
+        except ImportError:
+            continue
+    raise ImportError("apply_rotary_pos_emb not found")
 
 
 class PagedAttention(nn.Module):
@@ -43,7 +55,7 @@ class PagedAttention(nn.Module):
         V = self.v_proj(hidden_states).view(hidden_shape).transpose(1, 2)
 
         cos, sin = position_embeddings
-        Q, K = apply_rotary_pos_emb(Q, K, cos, sin)
+        Q, K = _apply_rotary_pos_emb(Q, K, cos, sin)
 
         _, _, seq_len, _ = Q.shape
 

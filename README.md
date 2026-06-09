@@ -1,125 +1,36 @@
 # mini-vllm
 
-A from-scratch, single-GPU LLM inference engine inspired by [vLLM](https://github.com/vllm-project/vllm) and [nano-vllm](https://github.com/GeeeekExplorer/nano-vllm). It implements the core ideas behind high-throughput serving — **paged KV cache**, **continuous batching**, and a **step-based engine loop** — in ~500 lines of readable Python.
+Single-GPU LLM inference with paged KV cache, an FCFS scheduler, and continuous batching.
 
-Default model: [`meta-llama/Llama-2-7b-hf`](https://huggingface.co/meta-llama/Llama-2-7b-hf) · requires a **24 GB** GPU
+Default model: [`Qwen/Qwen2.5-3B-Instruct`](https://huggingface.co/Qwen/Qwen2.5-3B-Instruct)
 
----
+Triton kernels (fused attention, etc.): [triton-kernels](https://github.com/shekkari1999/triton-kernels)
 
-## What this project does
+## How it works
 
-mini-vllm is an educational but functional inference stack. You send one or more text prompts, and the engine:
+Prompts become `Sequence` objects. The scheduler hands out fixed-size KV blocks from a GPU pool. Prefill and decode run through HuggingFace with `PagedAttention` patched in place of the stock attention layers. Sampling is greedy (`argmax`) for now.
 
-1. Tokenizes each prompt into a `Sequence`
-2. Schedules running requests with a block-aware scheduler
-3. Runs **prefill** (process the full prompt) then **decode** (one token at a time) through a Llama model
-4. Stores KV activations in a **paged GPU cache** instead of one giant tensor per sequence
-5. Returns generated text when a sequence hits EOS or `max_tokens`
-
-This is the same shape as production inference systems — just stripped down to one GPU, synchronous execution, and greedy sampling.
-
----
-
-## What's implemented
-
-| Component | Status | Description |
-|-----------|--------|-------------|
-| **PagedAttention** | Done | Custom attention layer with block-indexed K/V cache, RoPE, GQA, causal masking |
-| **Block allocator** | Done | Fixed-size block pool with ref-counted `PhysicalBlock`s |
-| **Scheduler** | Done | FCFS queue, continuous batching up to `max_batch_size` |
-| **Engine loop** | Done | `add_request` → `schedule` → prefill/decode → sample → free blocks |
-| **Model runner** | Done | Loads Llama via HuggingFace, patches attention layers at init |
-| **LLM API** | Done | Simple `LLM.generate(prompts, SamplingParams)` facade |
-| **Benchmarks** | Done | TTFT, prefill/decode tok/s, batch throughput |
-| **Vast.ai script** | Done | One-command setup + demo + benchmark on a rented GPU |
-
-### Not yet implemented
-
-- Temperature / top-p / top-k sampling (currently greedy `argmax`)
-- HTTP server or streaming
-- Multi-GPU / tensor parallelism
-- Prefix caching, CUDA graphs, chunked prefill
-- Non-Llama architectures
-
----
-
-## Architecture
-
-```mermaid
-flowchart TB
-    subgraph api [API]
-        LLM["LLM.generate()"]
-    end
-
-    subgraph engine [Engine]
-        LLMEngine["LLMEngine"]
-        Scheduler["Scheduler"]
-        BlockAlloc["BlockAllocator"]
-    end
-
-    subgraph runner [Model]
-        ModelRunner["ModelRunner"]
-        PagedAttn["PagedAttention × N layers"]
-        KVCache["Paged KV cache\n[2, layers, blocks, block_size, heads, dim]"]
-    end
-
-    LLM --> LLMEngine
-    LLMEngine --> Scheduler
-    LLMEngine --> ModelRunner
-    Scheduler --> BlockAlloc
-    ModelRunner --> PagedAttn
-    PagedAttn --> KVCache
-    BlockAlloc -. block_table .-> PagedAttn
-```
-
-### Request lifecycle
-
-```
-WAITING  →  (scheduler allocates blocks)  →  RUNNING
-RUNNING  →  prefill step (prompt tokens)   →  first output token
-RUNNING  →  decode steps (1 token/step)    →  FINISHED
-FINISHED →  blocks returned to free pool
-```
-
-Each sequence carries a **block table** — a list of `PhysicalBlock` objects pointing into the shared KV cache. When a sequence grows past a block boundary, the scheduler allocates another block from the pool.
-
----
-
-## Project layout
+## Layout
 
 ```
 minivllm/
-  config.py              # model path, block pool size, batch limits
-  llm.py                 # LLM facade
-  sampling_params.py     # max_tokens, temperature (unused for now)
-  engine/
-    llm_engine.py        # generation loop (add_request, step, generate)
-    scheduler.py         # waiting/running queues, block allocation
-    block_manager.py     # PhysicalBlock + BlockAllocator
-    model_runner.py      # HF model load, attention patching, prefill/decode
-    sequence.py          # Sequence state machine
-  layers/
-    attention.py         # PagedAttention module
-bench.py                 # CUDA benchmark script
-run.sh                   # Vast.ai one-shot setup + run
+  config.py
+  llm.py
+  engine/       scheduler, block allocator, model runner, generation loop
+  layers/       PagedAttention
+benchmarks/
+  run_all.py
+  plot_results.py
+  benchmark_memory.py
+  benchmark_batching.py
+  benchmark_ttft.py
 ```
-
----
 
 ## Quick start
 
-### Prerequisites
-
-- Python 3.11+
-- **CUDA GPU with 24 GB VRAM** (RTX 3090, RTX 4090, A5000, etc.)
-- [uv](https://docs.astral.sh/uv/) package manager
-- Hugging Face account with [Llama 2 license accepted](https://huggingface.co/meta-llama/Llama-2-7b-hf)
-
-### Local
-
 ```bash
 uv sync
-export HF_TOKEN=hf_your_token_here   # or: huggingface-cli login
+export HF_TOKEN=hf_...   # or: huggingface-cli login
 
 uv run python -c "
 from minivllm import LLM, SamplingParams
@@ -128,88 +39,58 @@ print(llm.generate('The capital of France is', SamplingParams(max_tokens=32)))
 "
 ```
 
-### Vast.ai
-
-Rent a **24 GB** CUDA instance (e.g. RTX 3090), clone this repo, then:
-
-```bash
-export HF_TOKEN=hf_your_token_here
-chmod +x run.sh
-./run.sh
-```
-
-`run.sh` installs dependencies, runs a two-prompt demo, then benchmarks.
-
----
-
 ## API
 
 ```python
 from minivllm import LLM, Config, SamplingParams
 
-# Default: meta-llama/Llama-2-7b-hf, 128 blocks × 16 tokens, batch 4
-llm = LLM()
-
-# Custom config
 llm = LLM(config=Config(
-    model="meta-llama/Llama-2-7b-chat-hf",
+    model="Qwen/Qwen2.5-3B-Instruct",
     num_blocks=128,
     block_size=16,
     max_batch_size=4,
 ))
 
-results = llm.generate(
-    ["The capital of France is", "Machine learning is"],
-    SamplingParams(max_tokens=64),
-)
-# {0: " Paris...", 1: " the..."}
+out = llm.generate(["Hello", "The sky is"], SamplingParams(max_tokens=64))
 ```
 
-### Config defaults
-
-| Parameter | Default | Meaning |
-|-----------|---------|---------|
-| `model` | `meta-llama/Llama-2-7b-hf` | HuggingFace model id |
+| Config | Default | Meaning |
+|--------|---------|---------|
+| `model` | Qwen2.5-3B-Instruct | HuggingFace model id |
 | `num_blocks` | 128 | KV blocks in the GPU pool |
-| `block_size` | 16 | Tokens stored per block |
+| `block_size` | 16 | Tokens per block |
 | `max_batch_size` | 4 | Max concurrent sequences |
 
----
+## Benchmarks
 
-## Benchmarking
+Three tracks, each with a naive baseline:
+
+| Track | Baseline | This repo | Metric |
+|-------|----------|-----------|--------|
+| Memory | `max_seq_len` reserved per request | Paged block allocator | Concurrent seqs under a fixed KV budget (CPU) |
+| Batching | One request decoded at a time | Continuous batching | tok/s (GPU) |
+| TTFT | Burst load, `max_batch_size=1` | All requests batched | p50 / p90 / max time to first token (GPU) |
 
 ```bash
-uv run python bench.py --warmup --max-tokens 64 --batch-size 4
+uv run python benchmarks/run_all.py
+uv run python benchmarks/plot_results.py
+uv run python benchmarks/benchmark_memory.py   # CPU only
 ```
 
-| Metric | What it measures |
-|--------|------------------|
-| **TTFT** | Time for the first engine step (prefill + first token) |
-| **Prefill tok/s** | Prompt tokens ÷ TTFT |
-| **Decode tok/s** | Generated tokens after the first ÷ sum of decode step times |
-| **Batch throughput** | Total output tokens ÷ wall time for N concurrent prompts |
+Output: `benchmarks/results/latest.json`, `benchmarks/results/figures/`
 
-Flags: `--model`, `--num-blocks`, `--block-size`, `--max-batch-size`, `--max-tokens`, `--batch-size`, `--warmup`.
+## Results
 
----
+Run `benchmarks/run_all.py` on a CUDA GPU and fill this in.
 
-## How paged attention works here
+| Benchmark | Metric | Value | GPU | Date |
+|-----------|--------|-------|-----|------|
+| Memory | paged / naive serve ratio | | | |
+| Batching | speedup vs sequential | | | |
+| TTFT | max TTFT improvement | | | |
 
-Standard inference allocates a full `[max_seq_len × layers × heads × dim]` KV tensor per request. That wastes GPU memory when sequences are short or finish early.
+## Not implemented yet
 
-mini-vllm instead:
-
-1. Pre-allocates one shared KV tensor shaped `[2, layers, num_blocks, block_size, kv_heads, head_dim]`
-2. Maps each sequence to a list of block ids via a **block table**
-3. On each forward pass, `PagedAttention` writes new K/V into the correct block slot and reads all past K/V back through the table
-4. When a sequence finishes, its blocks go back to the free pool for reuse
-
-The attention layers are patched in at model load time — HuggingFace's stock `LlamaAttention` is replaced with `PagedAttention`, which reuses the original projection weights.
-
----
-
-## References
-
-- [PagedAttention paper](https://arxiv.org/abs/2309.06180) — block-based KV cache management
-- [Inside vLLM](https://www.aleksagordic.com/blog/vllm) — anatomy of a high-throughput inference system
-- [nano-vllm](https://github.com/GeeeekExplorer/nano-vllm) — minimal reference implementation
+- Speculative decoding (Qwen3-0.6B draft + Qwen3-4B target)
+- Temperature / top-p sampling
+- Prefix caching, chunked prefill

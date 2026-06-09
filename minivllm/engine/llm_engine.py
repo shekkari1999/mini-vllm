@@ -18,6 +18,14 @@ class LLMEngine:
         self.model_runner = ModelRunner(model_path, num_blocks, block_size)
         self.seq_counter = 0
 
+    def reset(self):
+        """Clear scheduler and block pool between benchmark runs."""
+        self.scheduler.waiting.clear()
+        self.scheduler.running.clear()
+        self.seq_counter = 0
+        self.block_allocator = BlockAllocator(self.num_blocks, self.block_size)
+        self.scheduler.block_allocator = self.block_allocator
+
     def add_request(self, prompt: str, sampling_params: SamplingParams):
         token_ids = self.model_runner.tokenizer.encode(prompt)
         seq = Sequence(

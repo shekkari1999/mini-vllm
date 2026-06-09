@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 
-DEFAULT_MODEL = "meta-llama/Llama-2-7b-hf"
+DEFAULT_MODEL = "Qwen/Qwen2.5-3B-Instruct"
 
 
 @dataclass

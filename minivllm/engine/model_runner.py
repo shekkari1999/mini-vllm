@@ -7,6 +7,8 @@ from minivllm.layers.attention import PagedAttention
 class ModelRunner:
     def __init__(self, model_path, num_blocks, block_size):
         self.tokenizer = AutoTokenizer.from_pretrained(model_path)
+        if self.tokenizer.pad_token_id is None:
+            self.tokenizer.pad_token = self.tokenizer.eos_token
         self.model = AutoModelForCausalLM.from_pretrained(
             model_path, torch_dtype=torch.float16
         ).to("cuda")
