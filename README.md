@@ -2,7 +2,7 @@
 
 Single-GPU LLM inference with paged KV cache, an FCFS scheduler, and continuous batching.
 
-Default model: [`Qwen/Qwen2.5-7B-Instruct`](https://huggingface.co/Qwen/Qwen2.5-7B-Instruct)
+Default model: [`Qwen/Qwen2.5-7B-Instruct`](https://huggingface.co/Qwen/Qwen2.5-7B-Instruct). Qwen2 / Qwen2.5 only.
 
 Triton kernels (fused attention, etc.): [triton-kernels](https://github.com/shekkari1999/triton-kernels)
 

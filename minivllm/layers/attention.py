@@ -1,37 +1,14 @@
 import torch
 import torch.nn as nn
+from transformers.models.qwen2.modeling_qwen2 import apply_rotary_pos_emb
 
 
 def _attn_dims(attn_module):
-    """LlamaAttention exposes num_heads; Qwen2Attention uses config."""
-    config = getattr(attn_module, "config", None)
-    num_heads = getattr(attn_module, "num_heads", None)
-    if num_heads is None and config is not None:
-        num_heads = config.num_attention_heads
-    num_kv_heads = getattr(attn_module, "num_key_value_heads", None)
-    if num_kv_heads is None and config is not None:
-        num_kv_heads = config.num_key_value_heads
-    head_dim = getattr(attn_module, "head_dim", None)
-    if head_dim is None and config is not None:
-        head_dim = getattr(config, "head_dim", None)
-        if head_dim is None:
-            head_dim = config.hidden_size // config.num_attention_heads
-    if num_heads is None or num_kv_heads is None or head_dim is None:
-        raise AttributeError(f"Cannot resolve attention dims from {type(attn_module).__name__}")
-    return num_heads, num_kv_heads, head_dim
-
-
-def _apply_rotary_pos_emb(q, k, cos, sin):
-    for path in (
-        "transformers.models.qwen2.modeling_qwen2",
-        "transformers.models.llama.modeling_llama",
-    ):
-        try:
-            mod = __import__(path, fromlist=["apply_rotary_pos_emb"])
-            return mod.apply_rotary_pos_emb(q, k, cos, sin)
-        except ImportError:
-            continue
-    raise ImportError("apply_rotary_pos_emb not found")
+    cfg = attn_module.config
+    head_dim = getattr(cfg, "head_dim", None) or (
+        cfg.hidden_size // cfg.num_attention_heads
+    )
+    return cfg.num_attention_heads, cfg.num_key_value_heads, head_dim
 
 
 class PagedAttention(nn.Module):
@@ -72,7 +49,7 @@ class PagedAttention(nn.Module):
         V = self.v_proj(hidden_states).view(hidden_shape).transpose(1, 2)
 
         cos, sin = position_embeddings
-        Q, K = _apply_rotary_pos_emb(Q, K, cos, sin)
+        Q, K = apply_rotary_pos_emb(Q, K, cos, sin)
 
         _, _, seq_len, _ = Q.shape
 

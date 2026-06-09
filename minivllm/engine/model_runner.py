@@ -13,6 +13,10 @@ class ModelRunner:
             model_path, torch_dtype=torch.float16
         ).to("cuda")
         config = self.model.config
+        if not getattr(config, "model_type", "").startswith("qwen"):
+            raise ValueError(
+                f"Only Qwen models are supported (got model_type={config.model_type!r})"
+            )
         num_layers = config.num_hidden_layers
         num_kv_heads = config.num_key_value_heads
         head_dim = getattr(config, "head_dim", None) or (
@@ -35,7 +39,7 @@ class ModelRunner:
     def _get_decoder_layers(self):
         if hasattr(self.model, "model") and hasattr(self.model.model, "layers"):
             return self.model.model.layers
-        raise ValueError("Unsupported model architecture for paged attention")
+        raise ValueError("Expected Qwen model with model.layers decoder stack")
 
     def _patch_attention_layers(self):
         for layer_idx, layer in enumerate(self._get_decoder_layers()):
