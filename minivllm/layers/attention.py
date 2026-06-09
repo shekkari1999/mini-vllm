@@ -25,41 +25,23 @@ class PagedAttention(nn.Module):
         self.num_heads, self.num_kv_heads, self.head_dim = _attn_dims(attn_module)
         self.scaling = getattr(attn_module, "scaling", self.head_dim**-0.5)
 
-    def forward(
-        self,
-        hidden_states,
-        attention_mask=None,
-        position_ids=None,
-        past_key_values=None,
-        cache_position=None,
-        position_embeddings=None,
-        **kwargs,
-    ):
-        block_table = self.block_table_holder[0]
-        if block_table is None:
+    def _parse_ctx(self):
+        ctx = self.block_table_holder[0]
+        if ctx is None:
             raise RuntimeError("block_table must be set before forward")
-        if position_embeddings is None:
-            raise RuntimeError("position_embeddings must be provided for RoPE")
+        if isinstance(ctx, dict):
+            return ctx["block_tables"], ctx.get("seq_lens")
+        return [ctx], None
 
-        input_shape = hidden_states.shape[:-1]
-        hidden_shape = (*input_shape, -1, self.head_dim)
-
-        Q = self.q_proj(hidden_states).view(hidden_shape).transpose(1, 2)
-        K = self.k_proj(hidden_states).view(hidden_shape).transpose(1, 2)
-        V = self.v_proj(hidden_states).view(hidden_shape).transpose(1, 2)
-
-        cos, sin = position_embeddings
-        Q, K = apply_rotary_pos_emb(Q, K, cos, sin)
-
-        _, _, seq_len, _ = Q.shape
-
-        for i in range(seq_len):
-            pos = position_ids[0, i].item()
+    def _attend_one(self, Q, K, V, position_ids, block_table, valid_len):
+        """Single-sequence attention against the paged KV cache."""
+        for i in range(valid_len):
+            pos = position_ids[i].item()
             block_idx = pos // self.block_size
             slot = pos % self.block_size
             block_id = block_table[block_idx].block_id
-            self.kv_cache[0, self.layer_idx, block_id, slot] = K[0, :, i, :]
-            self.kv_cache[1, self.layer_idx, block_id, slot] = V[0, :, i, :]
+            self.kv_cache[0, self.layer_idx, block_id, slot] = K[:, i, :]
+            self.kv_cache[1, self.layer_idx, block_id, slot] = V[:, i, :]
 
         keys = []
         values = []
@@ -74,15 +56,66 @@ class PagedAttention(nn.Module):
             K_cache = K_cache.repeat_interleave(n_rep, dim=1)
             V_cache = V_cache.repeat_interleave(n_rep, dim=1)
 
-        scores = torch.matmul(Q, K_cache.transpose(-2, -1)) * self.scaling
+        Q_slice = Q[:, :valid_len, :].unsqueeze(0)
+        scores = torch.matmul(Q_slice, K_cache.transpose(-2, -1)) * self.scaling
 
         total_len = K_cache.shape[-2]
         key_idx = torch.arange(total_len, device=scores.device)
-        causal_mask = key_idx.unsqueeze(0) > position_ids[0].unsqueeze(1)
+        causal_mask = key_idx.unsqueeze(0) > position_ids[:valid_len].unsqueeze(1)
         scores.masked_fill_(causal_mask.unsqueeze(0).unsqueeze(0), float("-inf"))
 
         weights = torch.softmax(scores, dim=-1)
         out = torch.matmul(weights, V_cache)
-        out = out.transpose(1, 2).contiguous().view(*input_shape, -1)
+        return out.transpose(1, 2).contiguous().view(valid_len, -1)
+
+    def forward(
+        self,
+        hidden_states,
+        attention_mask=None,
+        position_ids=None,
+        past_key_values=None,
+        cache_position=None,
+        position_embeddings=None,
+        **kwargs,
+    ):
+        block_tables, seq_lens = self._parse_ctx()
+        if position_embeddings is None:
+            raise RuntimeError("position_embeddings must be provided for RoPE")
+
+        batch_size, seq_len, _ = hidden_states.shape
+        hidden_shape = (batch_size, seq_len, -1, self.head_dim)
+
+        Q = self.q_proj(hidden_states).view(hidden_shape).transpose(1, 2)
+        K = self.k_proj(hidden_states).view(hidden_shape).transpose(1, 2)
+        V = self.v_proj(hidden_states).view(hidden_shape).transpose(1, 2)
+
+        cos, sin = position_embeddings
+        Q, K = apply_rotary_pos_emb(Q, K, cos, sin)
+
+        if seq_lens is None:
+            seq_lens = [seq_len] * batch_size
+
+        outs = []
+        for b in range(batch_size):
+            valid_len = seq_lens[b]
+            out_b = self._attend_one(
+                Q[b],
+                K[b],
+                V[b],
+                position_ids[b],
+                block_tables[b],
+                valid_len,
+            )
+            if valid_len < seq_len:
+                pad = torch.zeros(
+                    seq_len - valid_len,
+                    out_b.shape[-1],
+                    device=out_b.device,
+                    dtype=out_b.dtype,
+                )
+                out_b = torch.cat([out_b, pad], dim=0)
+            outs.append(out_b.unsqueeze(0))
+
+        out = torch.cat(outs, dim=0)
         out = self.o_proj(out)
         return out, None

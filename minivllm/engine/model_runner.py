@@ -9,6 +9,7 @@ class ModelRunner:
         self.tokenizer = AutoTokenizer.from_pretrained(model_path)
         if self.tokenizer.pad_token_id is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
+        self.pad_token_id = self.tokenizer.pad_token_id
         self.model = AutoModelForCausalLM.from_pretrained(
             model_path, torch_dtype=torch.float16
         ).to("cuda")
@@ -51,8 +52,11 @@ class ModelRunner:
                 self.block_table_holder,
             )
 
-    def _forward(self, input_ids, position_ids, block_table):
-        self.block_table_holder[0] = block_table
+    def _forward(self, input_ids, position_ids, block_tables, seq_lens=None):
+        self.block_table_holder[0] = {
+            "block_tables": block_tables,
+            "seq_lens": seq_lens,
+        }
         with torch.no_grad():
             return self.model(
                 input_ids=input_ids,
@@ -61,21 +65,43 @@ class ModelRunner:
             )
 
     def run_prefill(self, seqs):
-        logits = []
-        for seq in seqs:
-            input_ids = torch.tensor([seq.prompt_token_ids], device="cuda")
-            position_ids = torch.tensor(
-                [list(range(len(seq.prompt_token_ids)))], device="cuda"
-            )
-            outputs = self._forward(input_ids, position_ids, seq.block_table)
-            logits.append(outputs.logits[0, -1, :])
-        return torch.stack(logits)
+        if not seqs:
+            return torch.empty(0, device="cuda")
+
+        lengths = [len(s.prompt_token_ids) for s in seqs]
+        max_len = max(lengths)
+        batch_size = len(seqs)
+
+        input_ids = torch.full(
+            (batch_size, max_len), self.pad_token_id, dtype=torch.long, device="cuda"
+        )
+        position_ids = torch.zeros(batch_size, max_len, dtype=torch.long, device="cuda")
+        for b, seq in enumerate(seqs):
+            n = lengths[b]
+            input_ids[b, :n] = torch.tensor(seq.prompt_token_ids, device="cuda")
+            position_ids[b, :n] = torch.arange(n, device="cuda")
+
+        outputs = self._forward(
+            input_ids,
+            position_ids,
+            [s.block_table for s in seqs],
+            seq_lens=lengths,
+        )
+        return torch.stack([outputs.logits[b, lengths[b] - 1, :] for b in range(batch_size)])
 
     def run_decode(self, seqs):
-        logits = []
-        for seq in seqs:
-            input_ids = torch.tensor([[seq.get_last_token_id()]], device="cuda")
-            position_ids = torch.tensor([[seq.get_len() - 1]], device="cuda")
-            outputs = self._forward(input_ids, position_ids, seq.block_table)
-            logits.append(outputs.logits[0, -1, :])
-        return torch.stack(logits)
+        if not seqs:
+            return torch.empty(0, device="cuda")
+
+        input_ids = torch.tensor(
+            [[s.get_last_token_id()] for s in seqs], dtype=torch.long, device="cuda"
+        )
+        position_ids = torch.tensor(
+            [[s.get_len() - 1] for s in seqs], dtype=torch.long, device="cuda"
+        )
+        outputs = self._forward(
+            input_ids,
+            position_ids,
+            [s.block_table for s in seqs],
+        )
+        return outputs.logits[:, -1, :]
