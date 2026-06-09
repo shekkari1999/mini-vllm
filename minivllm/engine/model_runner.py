@@ -15,7 +15,9 @@ class ModelRunner:
         config = self.model.config
         num_layers = config.num_hidden_layers
         num_kv_heads = config.num_key_value_heads
-        head_dim = config.hidden_size // config.num_attention_heads
+        head_dim = getattr(config, "head_dim", None) or (
+            config.hidden_size // config.num_attention_heads
+        )
         self.block_size = block_size
         self.block_table_holder = [None]
         self.kv_cache = torch.zeros(

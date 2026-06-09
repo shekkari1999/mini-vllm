@@ -2,6 +2,25 @@ import torch
 import torch.nn as nn
 
 
+def _attn_dims(attn_module):
+    """LlamaAttention exposes num_heads; Qwen2Attention uses config."""
+    config = getattr(attn_module, "config", None)
+    num_heads = getattr(attn_module, "num_heads", None)
+    if num_heads is None and config is not None:
+        num_heads = config.num_attention_heads
+    num_kv_heads = getattr(attn_module, "num_key_value_heads", None)
+    if num_kv_heads is None and config is not None:
+        num_kv_heads = config.num_key_value_heads
+    head_dim = getattr(attn_module, "head_dim", None)
+    if head_dim is None and config is not None:
+        head_dim = getattr(config, "head_dim", None)
+        if head_dim is None:
+            head_dim = config.hidden_size // config.num_attention_heads
+    if num_heads is None or num_kv_heads is None or head_dim is None:
+        raise AttributeError(f"Cannot resolve attention dims from {type(attn_module).__name__}")
+    return num_heads, num_kv_heads, head_dim
+
+
 def _apply_rotary_pos_emb(q, k, cos, sin):
     for path in (
         "transformers.models.qwen2.modeling_qwen2",
@@ -26,9 +45,7 @@ class PagedAttention(nn.Module):
         self.block_size = block_size
         self.layer_idx = layer_idx
         self.block_table_holder = block_table_holder
-        self.num_heads = attn_module.num_heads
-        self.num_kv_heads = attn_module.num_key_value_heads
-        self.head_dim = attn_module.head_dim
+        self.num_heads, self.num_kv_heads, self.head_dim = _attn_dims(attn_module)
         self.scaling = getattr(attn_module, "scaling", self.head_dim**-0.5)
 
     def forward(
