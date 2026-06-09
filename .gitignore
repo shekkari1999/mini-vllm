@@ -6,7 +6,10 @@ __pycache__/
 dist/
 build/
 benchmarks/results.json
-benchmarks/results/*.json
-benchmarks/results/figures/*.png
+benchmarks/results/*
 !benchmarks/results/.gitkeep
+!benchmarks/results/latest.json
+!benchmarks/results/figures/
+benchmarks/results/figures/*
 !benchmarks/results/figures/.gitkeep
+!benchmarks/results/figures/*.png
